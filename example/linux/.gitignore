@@ -1,0 +1,6 @@
+flutter/ephemeral
+linux/flutter/
+linux/build/
+linux/CMakeFiles/
+linux/cmake-build-debug/
+linux/cmake-build-release/
