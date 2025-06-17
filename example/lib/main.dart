@@ -64,7 +64,7 @@ class _MyHomePageState extends State<MyHomePage> {
    if (kDebugMode) {
      print(" machine uuid: $machineUUID");
    }
-
+   await UUIDUtils.getSystemInfo();
   }
 
   void _incrementCounter() async{
@@ -77,8 +77,6 @@ class _MyHomePageState extends State<MyHomePage> {
       _counter++;
     });
     printDeviceUUID();
-
-
   }
 
   @override
