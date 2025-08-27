@@ -1,4 +1,3 @@
-
 import 'package:fingerprint/fingerprint.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -60,14 +59,14 @@ class _MyHomePageState extends State<MyHomePage> {
   int _counter = 0;
 
   Future<void> printDeviceUUID() async {
-   final machineUUID = await FingerPrintUUID.getUUID();
-   if (kDebugMode) {
-     print(" machine uuid: $machineUUID");
-   }
-   await UUIDUtils.getSystemInfo();
+    final machineUUID = await FingerPrintUUID.getUUID();
+    if (kDebugMode) {
+      print(" machine uuid: $machineUUID");
+    }
+    await UUIDUtils.getSystemInfo();
   }
 
-  void _incrementCounter() async{
+  void _incrementCounter() async {
     setState(() {
       // This call to setState tells the Flutter framework that something has
       // changed in this State, which causes it to rerun the build method below
