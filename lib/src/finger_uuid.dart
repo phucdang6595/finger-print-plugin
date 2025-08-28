@@ -45,13 +45,12 @@ class FingerPrintUUID {
   // Lấy fingerprint với location
   static Future<Map<String, dynamic>> getFingerprintWithLocation() async {
     final basicFingerprint = await getUUID();
-    final location = await getLocationFromIP();
 
     final result = <String, dynamic>{
       'uuid': basicFingerprint['uuid'],
       'ip': basicFingerprint['ip'],
-      'public_ip': location?['ip'],
-      'location': location,
+      'location': await getDetailedLocation(),
+      'is_vpn': await isVPNOrProxy(),
     };
 
     return result;
