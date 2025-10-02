@@ -1,134 +1,275 @@
-
-import 'package:fingerprint/fingerprint.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:fingerprint/fingerprint.dart';
 
 void main() {
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  Map<String, dynamic>? _fingerprintWithLocation;
+  Map<String, dynamic>? _detailedLocation;
+  bool _isLoading = false;
+  bool _isVPN = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _getLocationInfo();
+  }
+
+  Future<void> _getLocationInfo() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Lấy fingerprint với location
+      final fingerprint = await FingerPrintUUID.getFingerprintWithLocation();
+
+      // Lấy location chi tiết
+      final detailed = await FingerPrintUUID.getDetailedLocation();
+
+      // Kiểm tra VPN/Proxy
+      final vpnCheck = await FingerPrintUUID.isVPNOrProxy();
+
+      setState(() {
+        _fingerprintWithLocation = fingerprint;
+        _detailedLocation = detailed;
+        _isVPN = vpnCheck;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      print('Error: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+      title: 'Fingerprint Location Demo',
+      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
+      home: Scaffold(
+        appBar: AppBar(
+          title: const Text('🌍 Location Detection Demo'),
+          backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        ),
+        body: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child:
+              _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // VPN Warning
+                        if (_isVPN)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            margin: const EdgeInsets.only(bottom: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade100,
+                              border: Border.all(color: Colors.orange),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.warning, color: Colors.orange),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '⚠️ VPN/Proxy detected! Location may be inaccurate.',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                        const Text(
+                          '📍 Location Information',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        if (_detailedLocation != null) ...[
+                          _buildLocationCard(
+                            'Country',
+                            _detailedLocation!['country'],
+                          ),
+                          _buildLocationCard(
+                            'Region/State',
+                            _detailedLocation!['region'],
+                          ),
+                          _buildLocationCard(
+                            'City',
+                            _detailedLocation!['city'],
+                          ),
+                          _buildLocationCard(
+                            'Postal Code',
+                            _detailedLocation!['postal'],
+                          ),
+                          _buildLocationCard(
+                            'Timezone',
+                            _detailedLocation!['timezone'],
+                          ),
+                          _buildLocationCard(
+                            'ISP/Organization',
+                            _detailedLocation!['org'],
+                          ),
+
+                          if (_detailedLocation!['coordinates'] != null) ...[
+                            const SizedBox(height: 16),
+                            const Text(
+                              '🗺️ Coordinates:',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Latitude: ${_detailedLocation!['latitude']}',
+                                    ),
+                                    Text(
+                                      'Longitude: ${_detailedLocation!['longitude']}',
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+
+                        const SizedBox(height: 32),
+                        const Text(
+                          '🔑 Device Information',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        if (_fingerprintWithLocation != null) ...[
+                          _buildInfoCard(
+                            'Device UUID',
+                            _fingerprintWithLocation!['uuid'],
+                          ),
+                          _buildInfoCard(
+                            'Local IP',
+                            _fingerprintWithLocation!['ip'],
+                          ),
+                          _buildInfoCard(
+                            'Public IP',
+                            _fingerprintWithLocation!['public_ip'],
+                          ),
+                        ],
+
+                        const SizedBox(height: 32),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _getLocationInfo,
+                            child: const Text('🔄 Refresh Location'),
+                          ),
+                        ),
+
+                        const SizedBox(height: 16),
+                        const Text(
+                          'ℹ️ How it works:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          '• Gets your public IP address\n'
+                          '• Uses IP geolocation to find location\n'
+                          '• Detects VPN/Proxy usage\n'
+                          '• Combines with device fingerprint',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+        ),
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
     );
   }
-}
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  Future<void> printDeviceUUID() async {
-   final machineUUID = await FingerPrintUUID.getUUID();
-   if (kDebugMode) {
-     print(" machine uuid: $machineUUID");
-   }
-   await UUIDUtils.getSystemInfo();
-  }
-
-  void _incrementCounter() async{
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
-    printDeviceUUID();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+  Widget _buildLocationCard(String title, dynamic value) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value?.toString() ?? 'Unknown',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            if (value != null)
+              const Icon(Icons.check_circle, color: Colors.green, size: 16)
+            else
+              const Icon(Icons.help_outline, color: Colors.grey, size: 16),
+          ],
+        ),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
+    );
+  }
+
+  Widget _buildInfoCard(String title, dynamic value) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value?.toString() ?? 'null',
+              style: const TextStyle(fontSize: 12),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
