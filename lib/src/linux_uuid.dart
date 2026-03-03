@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter/material.dart';
+
 class LinuxUUID {
   static Future<String?> getSystemUUID() async {
     final result = await Process.run('cat', [
@@ -12,7 +14,7 @@ class LinuxUUID {
         return uuid;
       }
     } else {
-      print('linux uuid error: ${result.stderr}');
+      debugPrint('linux uuid error: ${result.stderr}');
       return null;
     }
 

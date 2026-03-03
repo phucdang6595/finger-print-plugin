@@ -1,3 +1,4 @@
+// ignore: unnecessary_library_name
 library fingerprint;
 
 export 'package:fingerprint/src/finger_uuid.dart';

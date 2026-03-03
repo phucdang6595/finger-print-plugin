@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:fingerprint/src/uuid_utils.dart';
+import 'package:flutter/material.dart';
 
 class WindowsSystemUUID {
   static Future<String?> getSystemUUID() async {
@@ -41,7 +42,7 @@ class WindowsSystemUUID {
         }
       }
     } catch (e) {
-      print('Get primary IPv4 error: $e');
+      debugPrint('Get primary IPv4 error: $e');
     }
     return null;
   }
@@ -101,7 +102,7 @@ class WindowsSystemUUID {
         }
       }
     } catch (e) {
-      print('PowerShell UUID error: $e');
+      debugPrint('PowerShell UUID error: $e');
     }
     return null;
   }
@@ -128,7 +129,7 @@ class WindowsSystemUUID {
         }
       }
     } catch (e) {
-      print('WMIC UUID error: $e');
+      debugPrint('WMIC UUID error: $e');
     }
     return null;
   }
@@ -158,7 +159,7 @@ class WindowsSystemUUID {
         }
       }
     } catch (e) {
-      print('Registry UUID error: $e');
+      debugPrint('Registry UUID error: $e');
     }
     return null;
   }

@@ -1,10 +1,13 @@
 import 'dart:io';
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:fingerprint/src/windows_uuid.dart';
 import 'package:fingerprint/src/linux_uuid.dart';
 import 'package:fingerprint/src/macos_uuid.dart';
+import 'package:fingerprint/src/android_uuid.dart';
+import 'package:fingerprint/src/ios_uuid.dart';
+import 'package:fingerprint/src/uuid_utils.dart';
+import 'package:flutter/material.dart';
 
 class FingerPrintUUID {
   // Trả về dữ liệu chung gồm uuid và ip chính (IPv4)
@@ -19,8 +22,16 @@ class FingerPrintUUID {
 
     if (Platform.isLinux) {
       final uuid = await LinuxUUID.getSystemUUID();
-      final ip = await _getPrimaryIPv4();
+      final ip = await UUIDUtils.getPrimaryIPv4();
       return {'uuid': uuid, 'ip': ip};
+    }
+
+    if (Platform.isAndroid) {
+      return await AndroidUUID.getFingerprint();
+    }
+
+    if (Platform.isIOS) {
+      return await IOSUUID.getFingerprint();
     }
 
     return {'uuid': null, 'ip': null};
@@ -37,7 +48,7 @@ class FingerPrintUUID {
       final location = await _getIPGeolocation(publicIP);
       return location;
     } catch (e) {
-      print('Error getting location: $e');
+      debugPrint('Error getting location: $e');
       return null;
     }
   }
@@ -85,7 +96,7 @@ class FingerPrintUUID {
         }
       }
     } catch (e) {
-      print('Error getting public IP: $e');
+      debugPrint('Error getting public IP: $e');
     }
     return null;
   }
@@ -117,7 +128,7 @@ class FingerPrintUUID {
       }
       client.close();
     } catch (e) {
-      print('Error getting geolocation: $e');
+      debugPrint('Error getting geolocation: $e');
     }
     return null;
   }
@@ -148,7 +159,7 @@ class FingerPrintUUID {
 
       return location;
     } catch (e) {
-      print('Error getting detailed location: $e');
+      debugPrint('Error getting detailed location: $e');
       return null;
     }
   }
@@ -179,28 +190,8 @@ class FingerPrintUUID {
         return vpnKeywords.any((keyword) => lowerOrg.contains(keyword));
       }
     } catch (e) {
-      print('Error checking VPN/Proxy: $e');
+      debugPrint('Error checking VPN/Proxy: $e');
     }
     return false;
-  }
-
-  static Future<String?> _getPrimaryIPv4() async {
-    try {
-      final interfaces = await NetworkInterface.list(
-        includeLoopback: false,
-        includeLinkLocal: false,
-        type: InternetAddressType.IPv4,
-      );
-      for (final iface in interfaces) {
-        for (final addr in iface.addresses) {
-          if (!addr.isLoopback && addr.type == InternetAddressType.IPv4) {
-            return addr.address;
-          }
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-    return null;
   }
 }

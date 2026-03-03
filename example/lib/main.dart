@@ -49,7 +49,7 @@ class _MyAppState extends State<MyApp> {
       setState(() {
         _isLoading = false;
       });
-      print('Error: $e');
+      debugPrint('Error: $e');
     }
   }
 
