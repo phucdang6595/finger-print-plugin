@@ -25,7 +25,11 @@ class WindowsSystemUUID {
     if (wmicResult != null) return wmicResult;
 
     // 4. MachineGuid — ổn định, không cần admin, luôn có trên Windows
-    return await _getMachineGuidFromRegistry();
+    final machineGuid = await _getMachineGuidFromRegistry();
+    if (machineGuid != null) return machineGuid;
+
+    // 5. Last resort: UUID local theo user profile
+    return UUIDUtils.getOrCreateLocalDeviceId();
   }
 
   // Trả về dữ liệu chung gồm uuid và ip chính (IPv4)

@@ -1,14 +1,29 @@
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:fingerprint/src/uuid_utils.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 class IOSUUID {
+  static const MethodChannel _channel = MethodChannel('fingerprint');
+
   static Future<String?> getSystemUUID() async {
-    final deviceInfo = DeviceInfoPlugin();
-    final iosInfo = await deviceInfo.iosInfo;
-    return iosInfo.identifierForVendor;
+    try {
+      final id = await _channel.invokeMethod<String>('getPersistentDeviceId');
+      if (id != null && id.isNotEmpty) return id;
+    } catch (e) {
+      debugPrint('iOS persistent UUID channel error: $e');
+    }
+
+    // Fallback Dart nếu native channel lỗi
+    try {
+      final iosInfo = await DeviceInfoPlugin().iosInfo;
+      return iosInfo.identifierForVendor;
+    } catch (e) {
+      debugPrint('iOS IDFV fallback error: $e');
+    }
+    return null;
   }
 
-  // Trả về dữ liệu chung gồm uuid và ip chính (IPv4)
   static Future<Map<String, String?>> getFingerprint() async {
     final uuid = await getSystemUUID();
     final ip = await UUIDUtils.getPrimaryIPv4();

@@ -6,7 +6,6 @@ import 'package:fingerprint/src/linux_uuid.dart';
 import 'package:fingerprint/src/macos_uuid.dart';
 import 'package:fingerprint/src/android_uuid.dart';
 import 'package:fingerprint/src/ios_uuid.dart';
-import 'package:fingerprint/src/uuid_utils.dart';
 import 'package:flutter/material.dart';
 
 class FingerPrintUUID {
@@ -21,9 +20,7 @@ class FingerPrintUUID {
     }
 
     if (Platform.isLinux) {
-      final uuid = await LinuxUUID.getSystemUUID();
-      final ip = await UUIDUtils.getPrimaryIPv4();
-      return {'uuid': uuid, 'ip': ip};
+      return await LinuxUUID.getFingerprint();
     }
 
     if (Platform.isAndroid) {
