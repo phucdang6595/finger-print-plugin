@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:fingerprint/src/uuid_utils.dart';
+import 'package:fingerprint/src/windows_registry.dart';
 import 'package:flutter/foundation.dart';
 
 class WindowsSystemUUID {
@@ -11,24 +12,41 @@ class WindowsSystemUUID {
     'ffffffff-ffff-ffff-ffff-ffffffffffff',
   };
 
+  /// Thứ tự lấy UUID (đã tối ưu cho Win 10/11 Pro quản lý bằng GPO/EDR):
+  ///
+  /// 1. **MachineGuid qua Win32 API (FFI)** — nhanh, luôn có, không spawn tiến
+  ///    trình con nên không dính EDR/AV chặn PowerShell/WMIC; duy nhất theo mỗi
+  ///    bản cài Windows và ổn định qua reboot/update. Đây là nguồn tin cậy nhất.
+  /// 2. **MachineGuid qua `reg.exe`** — fallback nếu FFI vì lý do nào đó lỗi.
+  /// 3. **SMBIOS UUID qua CIM** — chỉ dùng làm phương án phụ, vì SMBIOS UUID hay
+  ///    TRÙNG trên các fleet cài từ cùng một image doanh nghiệp / VM.
+  /// 4. **SMBIOS UUID qua WMI** — cho máy cũ hơn.
+  /// 5. **UUID local theo user profile** — last resort (ổn định qua các lần chạy
+  ///    nhờ lưu file).
+  ///
+  /// `wmic` đã bị gỡ khỏi Windows 11 24H2+ nên KHÔNG còn nằm trên đường đi chính
+  /// (chỉ giữ lại trong [validateUUID] để chẩn đoán).
   static Future<String?> getSystemUUID() async {
-    // 1. Get-CimInstance (Windows 10/11 hiện đại; thay Get-WmiObject)
-    final cimResult = await _getUUIDWithCim();
-    if (cimResult != null) return cimResult;
+    // 1) MachineGuid qua FFI.
+    final ffiRaw = WindowsRegistry.readMachineGuid();
+    if (ffiRaw != null) {
+      final ffiGuid = _normalizeUuid(ffiRaw);
+      if (ffiGuid != null) return ffiGuid;
+    }
 
-    // 2. Get-WmiObject (máy cũ hơn)
-    final psResult = await _getUUIDWithPowerShell();
-    if (psResult != null) return psResult;
-
-    // 3. wmic — đã bị gỡ trên nhiều bản Windows 11 24H2+
-    final wmicResult = await _getUUIDWithWmic();
-    if (wmicResult != null) return wmicResult;
-
-    // 4. MachineGuid — ổn định, không cần admin, luôn có trên Windows
+    // 2) MachineGuid qua reg.exe.
     final machineGuid = await _getMachineGuidFromRegistry();
     if (machineGuid != null) return machineGuid;
 
-    // 5. Last resort: UUID local theo user profile
+    // 3) SMBIOS UUID (CIM).
+    final cimResult = await _getUUIDWithCim();
+    if (cimResult != null) return cimResult;
+
+    // 4) SMBIOS UUID (WMI).
+    final psResult = await _getUUIDWithPowerShell();
+    if (psResult != null) return psResult;
+
+    // 5) Last resort.
     return UUIDUtils.getOrCreateLocalDeviceId();
   }
 
@@ -62,9 +80,15 @@ class WindowsSystemUUID {
     return null;
   }
 
-  // Validate UUID: kiểm tra định dạng và so khớp giữa nhiều nguồn
+  // Validate UUID: kiểm tra định dạng và so khớp giữa nhiều nguồn.
+  // Dùng để chẩn đoán: log map `sources` để biết máy nào đang thiếu nguồn nào.
   static Future<Map<String, dynamic>> validateUUID() async {
     final sources = <String, String?>{};
+
+    try {
+      final raw = WindowsRegistry.readMachineGuid();
+      sources['machine_guid_ffi'] = raw == null ? null : _normalizeUuid(raw);
+    } catch (_) {}
 
     try {
       sources['cim'] = await _getUUIDWithCim();
@@ -82,11 +106,12 @@ class WindowsSystemUUID {
       sources['machine_guid'] = await _getMachineGuidFromRegistry();
     } catch (_) {}
 
-    // UUID ưu tiên theo thứ tự (SMBIOS trước, MachineGuid sau)
-    final preferred = sources['cim'] ??
+    // Ưu tiên MachineGuid (duy nhất per-install & ổn định) trước SMBIOS.
+    final preferred = sources['machine_guid_ffi'] ??
+        sources['machine_guid'] ??
+        sources['cim'] ??
         sources['powershell'] ??
-        sources['wmic'] ??
-        sources['machine_guid'];
+        sources['wmic'];
     final formatValid = UUIDUtils.isValidUUIDFormat(preferred);
 
     // So khớp các nguồn SMBIOS (không so MachineGuid vì khác nguồn)
@@ -131,80 +156,62 @@ class WindowsSystemUUID {
     String command,
     String label,
   ) async {
-    try {
-      final result = await Process.run(
-        'powershell',
-        [
-          '-NoProfile',
-          '-NonInteractive',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-Command',
-          command,
-        ],
-      ).timeout(const Duration(seconds: 15));
-
-      if (result.exitCode == 0) {
-        return _normalizeUuid(result.stdout.toString());
-      }
-      debugPrint('$label UUID stderr: ${result.stderr}');
-    } catch (e) {
-      debugPrint('$label UUID error: $e');
+    final output = await UUIDUtils.runProcessForStdout(
+      'powershell',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        command,
+      ],
+      timeout: const Duration(seconds: 6),
+    );
+    if (output == null) {
+      debugPrint('$label UUID: no output (blocked/timeout/non-zero exit)');
+      return null;
     }
-    return null;
+    return _normalizeUuid(output);
   }
 
   static Future<String?> _getUUIDWithWmic() async {
-    try {
-      final result = await Process.run(
-        'wmic',
-        [
-          'path',
-          'win32_computersystemproduct',
-          'get',
-          'UUID',
-        ],
-      ).timeout(const Duration(seconds: 15));
-
-      if (result.exitCode == 0) {
-        final lines = result.stdout.toString().split(RegExp(r'\r?\n'));
-        for (final line in lines) {
-          final normalized = _normalizeUuid(line);
-          if (normalized != null) return normalized;
-        }
-      }
-    } catch (e) {
-      debugPrint('WMIC UUID error: $e');
+    final output = await UUIDUtils.runProcessForStdout(
+      'wmic',
+      ['path', 'win32_computersystemproduct', 'get', 'UUID'],
+      timeout: const Duration(seconds: 6),
+    );
+    if (output == null) return null;
+    final lines = output.split(RegExp(r'\r?\n'));
+    for (final line in lines) {
+      final normalized = _normalizeUuid(line);
+      if (normalized != null) return normalized;
     }
     return null;
   }
 
-  /// MachineGuid từ Cryptography — ID máy Windows ổn định nhất khi SMBIOS lỗi.
+  /// MachineGuid từ Cryptography qua `reg.exe` — fallback cho bản FFI.
   static Future<String?> _getMachineGuidFromRegistry() async {
-    try {
-      final result = await Process.run(
-        'reg',
-        [
-          'query',
-          r'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography',
-          '/v',
-          'MachineGuid',
-        ],
-      ).timeout(const Duration(seconds: 10));
-
-      if (result.exitCode == 0) {
-        final lines = result.stdout.toString().split(RegExp(r'\r?\n'));
-        for (final line in lines) {
-          final trimmed = line.trim();
-          if (!trimmed.contains('REG_SZ')) continue;
-          final parts = trimmed.split('REG_SZ');
-          if (parts.length > 1) {
-            return _normalizeUuid(parts[1]);
-          }
-        }
+    final output = await UUIDUtils.runProcessForStdout(
+      'reg',
+      [
+        'query',
+        r'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography',
+        '/v',
+        'MachineGuid',
+      ],
+      timeout: const Duration(seconds: 4),
+    );
+    if (output == null) return null;
+    final lines = output.split(RegExp(r'\r?\n'));
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (!trimmed.contains('REG_SZ')) continue;
+      final parts = trimmed.split('REG_SZ');
+      if (parts.length > 1) {
+        final normalized = _normalizeUuid(parts[1]);
+        if (normalized != null) return normalized;
       }
-    } catch (e) {
-      debugPrint('MachineGuid registry error: $e');
     }
     return null;
   }

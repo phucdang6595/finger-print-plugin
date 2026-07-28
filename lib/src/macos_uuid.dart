@@ -1,7 +1,6 @@
-import 'dart:io';
+import 'dart:async';
 
 import 'package:fingerprint/src/uuid_utils.dart';
-import 'package:flutter/foundation.dart';
 
 class MacOSUUID {
   static Future<String?> getSystemUUID() async {
@@ -60,50 +59,41 @@ class MacOSUUID {
   }
 
   static Future<String?> _uuidFromIOReg() async {
-    try {
-      final result = await Process.run('ioreg', [
-        '-d2',
-        '-c',
-        'IOPlatformExpertDevice',
-      ]);
-      if (result.exitCode == 0) {
-        final output = result.stdout.toString();
-        final lines = output.split('\n');
-        for (final line in lines) {
-          if (line.contains('IOPlatformUUID')) {
-            final regex = RegExp(r'"IOPlatformUUID"\s*=\s*"([^"]+)"');
-            final match = regex.firstMatch(line);
-            final value = match?.group(1);
-            if (UUIDUtils.isUsableUuid(value)) return value;
-          }
-        }
-      } else {
-        debugPrint('macos ioreg error: ${result.stderr}');
+    // Có timeout + kill: nếu ioreg treo (hiếm) thì không block getSystemUUID.
+    final output = await UUIDUtils.runProcessForStdout(
+      'ioreg',
+      ['-d2', '-c', 'IOPlatformExpertDevice'],
+      timeout: const Duration(seconds: 4),
+    );
+    if (output == null) return null;
+    final lines = output.split('\n');
+    for (final line in lines) {
+      if (line.contains('IOPlatformUUID')) {
+        final regex = RegExp(r'"IOPlatformUUID"\s*=\s*"([^"]+)"');
+        final match = regex.firstMatch(line);
+        final value = match?.group(1);
+        if (UUIDUtils.isUsableUuid(value)) return value;
       }
-    } catch (e) {
-      debugPrint('macos ioreg error: $e');
     }
     return null;
   }
 
   static Future<String?> _uuidFromSystemProfiler() async {
-    try {
-      final result = await Process.run('system_profiler', [
-        'SPHardwareDataType',
-      ]);
-      if (result.exitCode == 0) {
-        final output = result.stdout.toString();
-        final lines = output.split('\n');
-        for (final line in lines) {
-          final trimmed = line.trim();
-          if (trimmed.startsWith('Hardware UUID:')) {
-            final value = trimmed.split(':').last.trim();
-            if (UUIDUtils.isUsableUuid(value)) return value;
-          }
-        }
+    // system_profiler có thể chậm vài giây (đặc biệt dưới sandbox/tải cao) nên
+    // cho timeout rộng hơn ioreg nhưng vẫn có giới hạn để tránh treo vô hạn.
+    final output = await UUIDUtils.runProcessForStdout(
+      'system_profiler',
+      ['SPHardwareDataType'],
+      timeout: const Duration(seconds: 8),
+    );
+    if (output == null) return null;
+    final lines = output.split('\n');
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.startsWith('Hardware UUID:')) {
+        final value = trimmed.split(':').last.trim();
+        if (UUIDUtils.isUsableUuid(value)) return value;
       }
-    } catch (e) {
-      debugPrint('macos system_profiler error: $e');
     }
     return null;
   }

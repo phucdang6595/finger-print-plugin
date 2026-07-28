@@ -1,6 +1,6 @@
 name: fingerprint
 description: "A new Flutter project."
-version: 1.0.6+1
+version: 1.1.0+1
 homepage: https://github.com/phucdang6595/finger-print-plugin
 
 environment:
@@ -15,6 +15,7 @@ dependencies:
   web: ^1.0.0
   plugin_platform_interface: ^2.0.2
   device_info_plus: ^11.3.0
+  ffi: ^2.1.0
 
 dev_dependencies:
   flutter_test:

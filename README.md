@@ -2,6 +2,33 @@
 
 Plugin Flutter để lấy thông tin fingerprint của thiết bị và **location từ IP public**.
 
+## 🆔 Định danh thiết bị & chống trùng fingerprint
+
+Nhiều máy (đặc biệt Windows fleet cài từ cùng một ghost image / VM template)
+dùng chung MachineGuid hoặc SMBIOS UUID → nếu định danh chỉ dựa vào ID phần cứng
+sẽ bị **trùng fingerprint**. Từ 1.1.0 plugin dùng mô hình **hybrid**:
+
+| Khóa | Ý nghĩa | Dùng để |
+|------|---------|---------|
+| `install_id` (= `uuid`) | UUID random sinh **một lần trên mỗi máy** ở lần chạy đầu (sau khi clone), lưu "dính" | **Khóa định danh chính** — không bao giờ trùng |
+| `hardware_id` | MachineGuid / SMBIOS UUID / IOPlatformUUID… | **Nối lại** cùng một máy vật lý qua reinstall & **phát hiện** fleet clone |
+| `signals` | hardware_uuid, host_name… | Tín hiệu phụ để đối chiếu |
+
+**`install_id` lưu ở đâu:**
+
+- Windows: registry `HKCU\Software\fingerprint\install_id` (đọc/ghi qua Win32 FFI) **và** file `%LOCALAPPDATA%\fingerprint\device_id`.
+- macOS/Linux: file trong `Application Support` / `~/.config`.
+- Android/iOS: dùng luôn id native (Keychain / Widevine) — đã duy nhất & bền qua reinstall.
+
+**Backend nên khử trùng như sau:**
+
+1. **Khóa chính = `install_id`** → không bao giờ gộp nhầm 2 máy khác nhau.
+2. **Nối máy qua reinstall**: `install_id` mới nhưng `hardware_id` khớp một máy đã biết ⇒ cùng máy vật lý.
+3. **Vô hiệu hóa fleet clone**: nếu **một `hardware_id` gắn với nhiều `install_id`** (vượt ngưỡng) ⇒ đánh dấu `hardware_id` đó "bị clone", chỉ tin `install_id`.
+
+> Đánh đổi: `install_id` sẽ mới khi cài lại OS / xoá sạch dữ liệu user — khi đó
+> backend dựa vào `hardware_id` để nhận lại máy.
+
 ## 🌍 Tính năng Location
 
 ### Lấy thông tin location từ IP public
@@ -77,19 +104,40 @@ if (isVPN) {
 ```dart
 // Lấy fingerprint cơ bản
 final basic = await FingerPrintUUID.getUUID();
-// Returns: {"uuid": "system-uuid", "ip": "local-ip"}
+// Returns:
+// {
+//   "uuid": "b2f1c8a0-…",        // = install_id — KHÓA định danh (không trùng)
+//   "install_id": "b2f1c8a0-…",  // UUID random lưu-dính, duy nhất mỗi máy
+//   "uuid_hashed": "1a2b3c4d",
+//   "hardware_id": "4c4c4544-…", // MachineGuid/SMBIOS… CÓ THỂ trùng máy clone
+//   "ip": "192.168.1.10",        // IPv4 nội bộ
+//   "signals": {
+//     "hardware_uuid": "4c4c4544-…",
+//     "hardware_uuid_hashed": "…",
+//     "host_name": "DESKTOP-ABC"
+//   }
+// }
 ```
+
+> ⚠️ **Đổi contract từ 1.1.0**: `uuid` giờ bằng `install_id` (không còn là UUID
+> phần cứng). UUID phần cứng chuyển sang `hardware_id`. Xem mục **🆔 Định danh
+> thiết bị & chống trùng fingerprint** ở trên.
 
 ### Với Location
 
 ```dart
 // Lấy fingerprint + location
 final withLocation = await FingerPrintUUID.getFingerprintWithLocation();
-// Returns: {
-//   "uuid": "system-uuid",
-//   "ip": "local-ip", 
-//   "public_ip": "public-ip",
-//   "location": { ... }
+// Returns:
+// {
+//   "uuid": "b2f1c8a0-…",        // = install_id
+//   "install_id": "b2f1c8a0-…",
+//   "hardware_id": "4c4c4544-…",
+//   "ip": "192.168.1.10",        // IPv4 nội bộ
+//   "public_ip": "203.0.113.7",  // IP public
+//   "location": { ... },
+//   "is_vpn": false,
+//   "signals": { ... }
 // }
 ```
 
@@ -208,11 +256,17 @@ class _LocationDemoState extends State<LocationDemo> {
 
 ## 🌐 Hỗ trợ Platform
 
-- ✅ Windows
-- ✅ macOS  
-- ✅ Linux
-- ❌ iOS (không hỗ trợ)
-- ❌ Android (không hỗ trợ)
+Định danh thiết bị (`getUUID`) hỗ trợ cả 5 nền tảng; Location (dựa trên IP
+public) chạy ở nơi có kết nối mạng.
+
+| Platform | Fingerprint / `getUUID` | Nguồn `hardware_id` | Location (IP) |
+|----------|:-----------------------:|---------------------|:-------------:|
+| Windows  | ✅ | MachineGuid (FFI) → SMBIOS UUID | ✅ |
+| macOS    | ✅ | IOPlatformUUID (`ioreg`) → `system_profiler` | ✅ |
+| Linux    | ✅ | `product_uuid` → `machine-id` | ✅ |
+| Android  | ✅ | Widevine → ANDROID_ID (native) | ✅ |
+| iOS      | ✅ | `identifierForVendor` + Keychain (native) | ✅ |
+| Web      | ❌ | — | — |
 
 ## 📊 API Services
 

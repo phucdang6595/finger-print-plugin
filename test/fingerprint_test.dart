@@ -6,9 +6,14 @@ void main() {
     test('getUUID should return basic fingerprint', () async {
       final result = await FingerPrintUUID.getUUID();
 
-      expect(result, isA<Map<String, String?>>());
+      expect(result, isA<Map<String, dynamic>>());
       expect(result.containsKey('uuid'), isTrue);
+      expect(result.containsKey('install_id'), isTrue);
+      expect(result.containsKey('hardware_id'), isTrue);
       expect(result.containsKey('ip'), isTrue);
+      // install_id là neo duy nhất, không được null.
+      expect(result['install_id'], isNotNull);
+      expect(result['uuid'], equals(result['install_id']));
     });
 
     test('getLocationFromIP should return location data', () async {
@@ -30,9 +35,11 @@ void main() {
 
         expect(result, isA<Map<String, dynamic>>());
         expect(result.containsKey('uuid'), isTrue);
+        expect(result.containsKey('install_id'), isTrue);
+        expect(result.containsKey('hardware_id'), isTrue);
         expect(result.containsKey('ip'), isTrue);
-        expect(result.containsKey('public_ip'), isTrue);
         expect(result.containsKey('location'), isTrue);
+        expect(result.containsKey('is_vpn'), isTrue);
       },
     );
 

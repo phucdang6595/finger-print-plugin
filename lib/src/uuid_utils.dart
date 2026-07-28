@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:fingerprint/src/windows_registry.dart';
 
 class UUIDUtils {
   static const _invalidUuids = {
@@ -117,23 +119,74 @@ class UUIDUtils {
         '${hex.substring(20, 32)}';
   }
 
-  /// Đọc hoặc tạo UUID local (last resort khi hardware/OS ID không có).
-  static Future<String> getOrCreateLocalDeviceId() async {
+  // Registry HKCU nơi lưu install_id trên Windows.
+  static const String _winInstallIdSubKey = r'Software\fingerprint';
+  static const String _winInstallIdValueName = 'install_id';
+
+  /// **install_id** — neo định danh DUY NHẤT cho mỗi máy.
+  ///
+  /// Đây là chìa khóa xử lý trùng fingerprint: một UUID v4 (CSPRNG) được sinh
+  /// **một lần** ở lần chạy đầu trên từng máy (tức là SAU khi máy đã được clone/
+  /// ghost image), rồi lưu "dính" nên về mặt toán học không thể trùng giữa các
+  /// máy — kể cả khi cả fleet dùng chung MachineGuid/SMBIOS UUID.
+  ///
+  /// Lưu ở nhiều nơi để bền qua việc xoá cache app:
+  ///  - Windows: registry `HKCU\Software\fingerprint\install_id` **và** file.
+  ///  - macOS/Linux: file trong thư mục app-support/config của user.
+  ///
+  /// Lưu ý: id gắn theo profile user (không cần quyền admin). Nếu cài lại OS
+  /// hoặc xoá sạch dữ liệu user thì id sẽ mới — khi đó backend dựa vào
+  /// `hardware_id` gửi kèm để nối lại cùng một máy vật lý.
+  static Future<String> getOrCreateInstallId() async {
+    // 1) Windows: ưu tiên đọc từ registry HKCU (bền hơn file khi dọn cache).
+    if (Platform.isWindows) {
+      final fromReg = WindowsRegistry.readCurrentUserString(
+        _winInstallIdSubKey,
+        _winInstallIdValueName,
+      );
+      if (isUsableUuid(fromReg)) return fromReg!.trim();
+    }
+
+    // 2) Mọi nền: đọc từ file.
     final file = await _localDeviceIdFile();
+    String? fromFile;
     try {
       if (await file.exists()) {
         final existing = (await file.readAsString()).trim();
-        if (isUsableUuid(existing)) return existing;
+        if (isUsableUuid(existing)) fromFile = existing;
       }
-    } catch (_) {}
+    } catch (_) {
+      // best-effort: đọc file lỗi thì coi như chưa có, sẽ sinh mới bên dưới.
+    }
 
-    final created = generateUuid();
-    try {
-      await file.parent.create(recursive: true);
-      await file.writeAsString(created);
-    } catch (_) {}
-    return created;
+    final id = fromFile ?? generateUuid();
+
+    // 3) Ghi lại (best-effort) để đồng bộ giữa registry & file cho lần sau.
+    if (Platform.isWindows) {
+      try {
+        WindowsRegistry.writeCurrentUserString(
+          _winInstallIdSubKey,
+          _winInstallIdValueName,
+          id,
+        );
+      } catch (_) {
+        // best-effort: không ghi được registry thì vẫn còn file.
+      }
+    }
+    if (fromFile == null) {
+      try {
+        await file.parent.create(recursive: true);
+        await file.writeAsString(id);
+      } catch (_) {
+        // best-effort: ghi file lỗi thì id vẫn trả về (chỉ là không lưu bền).
+      }
+    }
+    return id;
   }
+
+  /// Alias tương thích ngược: last resort khi hardware/OS ID không có.
+  /// Nay dùng chung cơ chế lưu-dính với [getOrCreateInstallId].
+  static Future<String> getOrCreateLocalDeviceId() => getOrCreateInstallId();
 
   static Future<File> _localDeviceIdFile() async {
     if (Platform.isMacOS) {
@@ -173,5 +226,56 @@ class UUIDUtils {
       // ignore
     }
     return null;
+  }
+
+  /// Chạy tiến trình con với timeout THẬT SỰ.
+  ///
+  /// Khác với `Process.run(...).timeout(...)` (chỉ làm Future ném lỗi nhưng
+  /// để tiến trình con chạy mồ côi), hàm này dùng [Process.start] và **kill**
+  /// tiến trình con khi quá hạn, tránh rò process trên các máy bị EDR/AV làm
+  /// chậm việc spawn `powershell`/`wmic`.
+  ///
+  /// Trả về stdout đã decode nếu tiến trình kết thúc với exitCode 0; trả về
+  /// `null` trong mọi trường hợp khác: executable không tồn tại/không chạy
+  /// được (vd `wmic` đã bị gỡ trên Win 11 24H2+), exitCode != 0, hoặc quá hạn.
+  static Future<String?> runProcessForStdout(
+    String executable,
+    List<String> arguments, {
+    Duration timeout = const Duration(seconds: 5),
+    bool runInShell = false,
+  }) async {
+    Process? process;
+    try {
+      process = await Process.start(
+        executable,
+        arguments,
+        runInShell: runInShell,
+      );
+
+      // Drain stdout/stderr song song để pipe buffer không đầy gây deadlock.
+      // catchError để stream lỗi (vd khi bị kill) không thành unhandled error.
+      final outFuture = process.stdout
+          .transform(systemEncoding.decoder)
+          .join()
+          .catchError((_) => '');
+      final errFuture = process.stderr
+          .transform(systemEncoding.decoder)
+          .join()
+          .catchError((_) => '');
+
+      final exitCode = await process.exitCode.timeout(timeout);
+      final output = await outFuture;
+      await errFuture;
+
+      return exitCode == 0 ? output : null;
+    } on TimeoutException {
+      process?.kill(ProcessSignal.sigkill);
+      return null;
+    } on ProcessException {
+      return null;
+    } catch (_) {
+      process?.kill(ProcessSignal.sigkill);
+      return null;
+    }
   }
 }

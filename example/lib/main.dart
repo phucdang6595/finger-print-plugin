@@ -30,19 +30,14 @@ class _MyAppState extends State<MyApp> {
     });
 
     try {
-      // Lấy fingerprint với location
+      // Một lần gọi là đủ: getFingerprintWithLocation đã gồm location + is_vpn
+      // (tránh gọi mạng lặp lại như trước).
       final fingerprint = await FingerPrintUUID.getFingerprintWithLocation();
-
-      // Lấy location chi tiết
-      final detailed = await FingerPrintUUID.getDetailedLocation();
-
-      // Kiểm tra VPN/Proxy
-      final vpnCheck = await FingerPrintUUID.isVPNOrProxy();
 
       setState(() {
         _fingerprintWithLocation = fingerprint;
-        _detailedLocation = detailed;
-        _isVPN = vpnCheck;
+        _detailedLocation = fingerprint['location'] as Map<String, dynamic>?;
+        _isVPN = fingerprint['is_vpn'] == true;
         _isLoading = false;
       });
     } catch (e) {
@@ -171,8 +166,12 @@ class _MyAppState extends State<MyApp> {
 
                         if (_fingerprintWithLocation != null) ...[
                           _buildInfoCard(
-                            'Device UUID',
-                            _fingerprintWithLocation!['uuid'],
+                            'Install ID (định danh chính, không trùng)',
+                            _fingerprintWithLocation!['install_id'],
+                          ),
+                          _buildInfoCard(
+                            'Hardware ID (có thể trùng trên máy clone)',
+                            _fingerprintWithLocation!['hardware_id'],
                           ),
                           _buildInfoCard(
                             'Local IP',
